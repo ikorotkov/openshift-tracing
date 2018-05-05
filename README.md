@@ -1,5 +1,5 @@
 # openshift-tracing
 Jaeger + Elasticsearch
-###DEPLOY ELASTICSEARCH
+### DEPLOY ELASTICSEARCH
    oc new project jaeger
    
