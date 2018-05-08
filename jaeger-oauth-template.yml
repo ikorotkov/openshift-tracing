@@ -76,8 +76,8 @@ objects:
       jaeger-infra: query-route
   spec:
     tls:
-      insecureEdgeTerminationPolicy: Allow
-      termination: edge
+      insecureEdgeTerminationPolicy: Redirect
+      termination: Reencrypt
     to:
       kind: Service
       name: ${JAEGER_SERVICE_NAME}-query
