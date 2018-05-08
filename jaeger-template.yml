@@ -1,5 +1,13 @@
 
 parameters:
+- description: The namespace to instantiate jaeger under. Defaults to 'jaeger'.
+  name: NAMESPACE
+  required: true
+  value: jaeger
+- description: The location of the proxy image
+  name: IMAGE_PROXY
+  required: true
+  value: openshift/oauth-proxy:v1.0.0
 - description: The name of the Jaeger Service.
   displayName: Jaeger Service Name
   name: JAEGER_SERVICE_NAME
@@ -15,7 +23,12 @@ parameters:
   name: JAEGER_ZIPKIN_SERVICE_NAME
   required: true
   value: zipkin
-
+- description: The session secret for the proxy
+  name: SESSION_SECRET
+  generate: expression
+  from: "[a-zA-Z0-9]{43}"
+  required: true
+  
 apiVersion: v1
 kind: Template
 labels:
@@ -34,6 +47,152 @@ metadata:
     name: jaeger-infra
     jaeger-infra: template-production
 objects:
+
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: ${JAEGER_SERVICE_NAME}-query
+    annotations:
+      service.alpha.openshift.io/serving-cert-secret-name: jaeger-tls
+    labels:
+      app: jaeger
+      jaeger-infra: query-service
+  spec:
+    ports:
+    - name: jaeger-query
+      port: 80
+      protocol: TCP
+      targetPort: 16686
+    selector:
+      jaeger-infra: query-pod
+    type: LoadBalancer
+
+- apiVersion: v1
+  kind: Route
+  metadata:
+    name: ${JAEGER_SERVICE_NAME}-query
+    labels:
+      app: jaeger
+      jaeger-infra: query-route
+  spec:
+    tls:
+      insecureEdgeTerminationPolicy: Allow
+      termination: edge
+    to:
+      kind: Service
+      name: ${JAEGER_SERVICE_NAME}-query
+
+- apiVersion: v1
+  kind: ServiceAccount
+  metadata:
+    name: ${JAEGER_SERVICE_NAME}
+    namespace: ${NAMESPACE}
+    annotations:
+      serviceaccounts.openshift.io/oauth-redirectreference.jaeger: '{"kind":"OAuthRedirectReference","apiVersion":"v1","reference":{"kind":"Route","name":"${JAEGER_SERVICE_NAME}-query"}}'
+
+- apiVersion: authorization.openshift.io/v1
+  kind: ClusterRoleBinding
+  metadata:
+    name: jaeger-cluster-reader
+  roleRef:
+    name: cluster-reader
+  subjects:
+  - kind: ServiceAccount
+    name: jaeger
+    namespace: "${NAMESPACE}"
+
+- apiVersion: v1
+  kind: Secret
+  metadata:
+    name: jaeger-proxy
+    namespace: "${NAMESPACE}"
+  stringData:
+    session_secret: "${SESSION_SECRET}="
+
+- apiVersion: extensions/v1beta1
+  kind: Deployment
+  metadata:
+    name: ${JAEGER_SERVICE_NAME}-query
+    labels:
+      app: jaeger
+      jaeger-infra: query-deployment
+  spec:
+    replicas: 1
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app: jaeger
+          jaeger-infra: query-pod
+      spec:
+        serviceAccountName: ${JAEGER_SERVICE_NAME}
+        containers:
+        - name: oauth-proxy
+          image: ${IMAGE_PROXY}
+          imagePullPolicy: IfNotPresent
+          ports:
+          - containerPort: 8443
+            name: web
+          args:
+          - -https-address=:8443
+          - -http-address=
+          - -email-domain=*
+          - -client-id=system:serviceaccount:${NAMESPACE}:${JAEGER_SERVICE_NAME}
+          - -upstream=http://localhost:16686
+          - -provider=openshift
+          - '-openshift-delegate-urls={"/": {"resource": "namespace", "verb": "get", "resourceName": "${NAMESPACE}", "namespace": "${NAMESPACE}"}}'
+          - '-openshift-sar={"namespace": "${NAMESPACE}", "verb": "list", "resource": "services"}'
+          - -tls-cert=/etc/tls/private/tls.crt
+          - -tls-key=/etc/tls/private/tls.key
+          - -client-secret-file=/var/run/secrets/kubernetes.io/serviceaccount/token
+          - -cookie-secret-file=/etc/proxy/secrets/session_secret
+          - -skip-auth-regex=^/metrics
+          volumeMounts:
+          - mountPath: /etc/tls/private
+            name: jaeger-tls
+          - mountPath: /etc/proxy/secrets
+            name: secrets
+        
+        - name: jaeger-query
+          image: jaegertracing/jaeger-query:${IMAGE_VERSION}
+          command:
+            - "/go/bin/query-linux"
+            - "--config-file=/conf/query.yaml"
+          ports:
+          - containerPort: 16686
+            protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: "/"
+              port: 16686
+          volumeMounts:
+          - mountPath: /conf          
+            name: jaeger-configuration-volume
+          - mountPath: /etc/tls/private
+            name: jaeger-tls
+          - mountPath: /etc/proxy/secrets
+            name: secrets
+          env:
+          - name: SPAN_STORAGE_TYPE
+            valueFrom:
+              configMapKeyRef:
+                name: jaeger-configuration
+                key: span-storage-type
+        volumes:
+          - name: jaeger-configuration-volume
+            configMap:
+              name: jaeger-configuration
+              items:
+                - key: query
+                  path: query.yaml          
+          - name: secrets
+            secret:
+              secretName: jaeger-proxy
+          - name: jaeger-tls
+            secret:
+              secretName: jaeger-tls
+    
 - apiVersion: extensions/v1beta1
   kind: Deployment
   metadata:
@@ -120,79 +279,3 @@ objects:
     selector:
       jaeger-infra: collector-pod
     type: ClusterIP
-- apiVersion: extensions/v1beta1
-  kind: Deployment
-  metadata:
-    name: ${JAEGER_SERVICE_NAME}-query
-    labels:
-      app: jaeger
-      jaeger-infra: query-deployment
-  spec:
-    replicas: 1
-    strategy:
-      type: Recreate
-    template:
-      metadata:
-        labels:
-          app: jaeger
-          jaeger-infra: query-pod
-      spec:
-        containers:
-        - image: jaegertracing/jaeger-query:${IMAGE_VERSION}
-          name: jaeger-query
-          command:
-            - "/go/bin/query-linux"
-            - "--config-file=/conf/query.yaml"
-          ports:
-          - containerPort: 16686
-            protocol: TCP
-          readinessProbe:
-            httpGet:
-              path: "/"
-              port: 16686
-          volumeMounts:
-          - name: jaeger-configuration-volume
-            mountPath: /conf
-          env:
-          - name: SPAN_STORAGE_TYPE
-            valueFrom:
-              configMapKeyRef:
-                name: jaeger-configuration
-                key: span-storage-type
-        volumes:
-          - configMap:
-              name: jaeger-configuration
-              items:
-                - key: query
-                  path: query.yaml
-            name: jaeger-configuration-volume
-- apiVersion: v1
-  kind: Service
-  metadata:
-    name: ${JAEGER_SERVICE_NAME}-query
-    labels:
-      app: jaeger
-      jaeger-infra: query-service
-  spec:
-    ports:
-    - name: jaeger-query
-      port: 80
-      protocol: TCP
-      targetPort: 16686
-    selector:
-      jaeger-infra: query-pod
-    type: LoadBalancer
-- apiVersion: v1
-  kind: Route
-  metadata:
-    name: ${JAEGER_SERVICE_NAME}-query
-    labels:
-      app: jaeger
-      jaeger-infra: query-route
-  spec:
-    tls:
-      insecureEdgeTerminationPolicy: Allow
-      termination: edge
-    to:
-      kind: Service
-      name: ${JAEGER_SERVICE_NAME}-query
