@@ -1,0 +1,237 @@
+
+parameters:
+- description: The location of the proxy image
+  name: IMAGE_PROXY
+  required: true
+  value: openshift/oauth-proxy:v1.0.0
+- description: The name of the Jaeger Service.
+  displayName: Jaeger Service Name
+  name: JAEGER_SRV_NAME
+  required: true
+  value: jaeger
+- description: The Jaeger image version to use
+  displayName: Image version
+  name: IMAGE_VERSION
+  required: false
+  value: "1.2"
+- description: The name of the Jaeger Zipkin Service.
+  displayName: Jaeger Zipkin Service Name
+  name: JAEGER_ZIPKIN_SERVICE_NAME
+  required: true
+  value: zipkin
+  
+apiVersion: v1
+kind: Template
+labels:
+  app: jaeger
+  template: jaeger-template
+metadata:
+  name: jaeger-template
+  annotations:
+    description: Jaeger Distributed Tracing Server
+    iconClass: icon-go-gopher
+    openshift.io/display-name: Jaeger
+    tags: instant-app,tracing,opentracing,jaeger
+  labels:
+    app: jaeger
+    name: jaeger-infra
+objects:
+
+# Create a proxy service account and ensure it will use for the route jaeger-query
+- apiVersion: v1
+  kind: ServiceAccount
+  metadata:
+    name: jaeger-proxy
+    annotations:
+      serviceaccounts.openshift.io/oauth-redirectreference.jaeger: '{"kind":"OAuthRedirectReference","apiVersion":"v1","reference":{"kind":"Route","name":"${JAEGER_SRV_NAME}-query"}}'
+
+# Create a secure connection to the proxy via a route    
+- apiVersion: v1
+  kind: Route
+  metadata:
+    name: ${JAEGER_SRV_NAME}-query
+    labels:
+      app: jaeger
+      jaeger-infra: query-route
+  spec:
+    to:
+      name: ${JAEGER_SRV_NAME}-proxy
+    tls:
+      termination: Reencrypt      
+
+# Create a service for proxy      
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: ${JAEGER_SRV_NAME}-proxy
+    annotations:
+      service.alpha.openshift.io/serving-cert-secret-name: jaeger-tls
+    labels:
+      app: jaeger
+      jaeger-infra: query-service
+  spec:
+    ports:
+    - name: jaeger-proxy
+      port: 443
+      targetPort: 8443
+    selector:
+      app: jaeger
+
+# Deploy Jaeger behind an oauth proxy      
+- apiVersion: extensions/v1beta1
+  kind: Deployment
+  metadata:
+    name: ${JAEGER_SRV_NAME}-query
+    labels:
+      app: jaeger
+      jaeger-infra: query-deployment
+  spec:
+    replicas: 1
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app: jaeger
+          jaeger-infra: query-pod
+      spec:
+        serviceAccountName: jaeger-proxy
+        containers:
+        - name: oauth-proxy
+          image: ${IMAGE_PROXY}
+          imagePullPolicy: IfNotPresent
+          ports:
+          - containerPort: 8443
+            name: web
+          args:
+          - -https-address=:8443
+          - -provider=openshift
+          - -openshift-service-account=jaeger-proxy
+          - -upstream=http://localhost:16686
+          - -tls-cert=/etc/tls/private/tls.crt
+          - -tls-key=/etc/tls/private/tls.key
+          - -cookie-secret=SECRET
+          volumeMounts:
+          - mountPath: /etc/tls/private
+            name: jaeger-tls
+        
+        - name: jaeger-query
+          image: jaegertracing/jaeger-query:${IMAGE_VERSION}
+          command:
+            - "/go/bin/query-linux"
+            - "--config-file=/conf/query.yaml"
+          ports:
+          - containerPort: 16686
+            protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: "/"
+              port: 16686
+          volumeMounts:
+          - mountPath: /conf          
+            name: jaeger-configuration-volume
+          - mountPath: /etc/tls/private
+            name: jaeger-tls
+          env:
+          - name: SPAN_STORAGE_TYPE
+            valueFrom:
+              configMapKeyRef:
+                name: jaeger-configuration
+                key: span-storage-type
+        volumes:
+          - name: jaeger-configuration-volume
+            configMap:
+              name: jaeger-configuration
+              items:
+                - key: query
+                  path: query.yaml          
+          - name: jaeger-tls
+            secret:
+              secretName: jaeger-tls
+    
+- apiVersion: extensions/v1beta1
+  kind: Deployment
+  metadata:
+    name: ${JAEGER_SRV_NAME}-collector
+    labels:
+      app: jaeger
+      jaeger-infra: collector-deployment
+  spec:
+    replicas: 1
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app: jaeger
+          jaeger-infra: collector-pod
+      spec:
+        containers:
+        - image: jaegertracing/jaeger-collector:${IMAGE_VERSION}
+          name: ${JAEGER_SRV_NAME}-collector
+          command:
+            - "/go/bin/collector-linux"
+            - "--config-file=/conf/collector.yaml"
+          ports:
+          - containerPort: 14267
+            protocol: TCP
+          - containerPort: 14268
+            protocol: TCP
+          - containerPort: 9411
+            protocol: TCP
+          volumeMounts:
+          - name: jaeger-configuration-volume
+            mountPath: /conf
+          env:
+          - name: SPAN_STORAGE_TYPE
+            valueFrom:
+              configMapKeyRef:
+                name: jaeger-configuration
+                key: span-storage-type
+        volumes:
+          - configMap:
+              name: jaeger-configuration
+              items:
+                - key: collector
+                  path: collector.yaml
+            name: jaeger-configuration-volume
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: ${JAEGER_SRV_NAME}-collector
+    labels:
+      app: jaeger
+      jaeger-infra: collector-service
+  spec:
+    ports:
+    - name: jaeger-collector-tchannel
+      port: 14267
+      protocol: TCP
+      targetPort: 14267
+    - name: jaeger-collector-http
+      port: 14268
+      protocol: TCP
+      targetPort: 14268
+    - name: jaeger-collector-zipkin
+      port: 9411
+      protocol: TCP
+      targetPort: 9411
+    selector:
+      jaeger-infra: collector-pod
+    type: ClusterIP
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: ${JAEGER_ZIPKIN_SERVICE_NAME}
+    labels:
+      app: jaeger
+      jaeger-infra: zipkin-service
+  spec:
+    ports:
+    - name: jaeger-zipkin-http
+      port: 9411
+      protocol: TCP
+      targetPort: 9411
+    selector:
+      jaeger-infra: collector-pod
+    type: ClusterIP
