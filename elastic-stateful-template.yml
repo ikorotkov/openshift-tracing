@@ -4,11 +4,16 @@ parameters:
   name: ELASTIC_DEPLOY_NAME
   required: true
   value: elasticsearch
-- description: The Elasticsearch image version to use
-  displayName: Image version
-  name: IMAGE_VERSION
-  required: false
-  value: "latest"
+- description: The Elasticsearch image to use
+  displayName: Image
+  name: IMAGE
+  required: true
+  value: "registry.centos.org/rhsyseng/elasticsearch:latest"
+- description: The Service Account for pre-deploy setting
+  displayName: Service Account
+  name: PRIV_SA
+  required: true
+  value: "privilegeduser"  
 - description: Limit of memory for java.
   displayName: Memory
   name: ELASTIC_MEMORY
@@ -25,7 +30,7 @@ metadata:
   annotations:
     openshift.io/display-name: Elasticsearch
     description: Elasticsearch is a distributed, RESTful search and analytics engine.
-    openshift.io/long-description: >-
+    openshift.io/long-description: |
        Elasticsearch is a distributed, RESTful search and analytics engine capable of solving a growing number of use cases.
        As the heart of the Elastic Stack, it centrally stores your data so you can discover the expected and uncover the unexpected.
     iconClass: icon-elastic
@@ -50,6 +55,7 @@ objects:
         labels:
           app: elasticsearch
       spec:
+        ServiceAccountName: ${PRIV_SA}
         initContainers:
           - name: init-sysctl
             image: busybox
@@ -66,7 +72,7 @@ objects:
             value: elasticsearch
           - name: LOG_LEVEL
             value: info
-          image: registry.centos.org/rhsyseng/elasticsearch:${IMAGE_VERSION}
+          image: ${IMAGE}
           imagePullPolicy: Always
           name: ${ELASTIC_DEPLOY_NAME}
           livenessProbe:
