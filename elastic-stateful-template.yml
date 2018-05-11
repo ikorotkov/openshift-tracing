@@ -58,7 +58,7 @@ objects:
         labels:
           app: elasticsearch
       spec:
-        ServiceAccountName: ${PRIV_SA}
+        serviceAccountName: ${PRIV_SA}
         initContainers:
           - name: init-sysctl
             image: busybox
