@@ -29,7 +29,10 @@ metadata:
   name: elasticsearch-template
   annotations:
     openshift.io/display-name: Elasticsearch
-    description: Elasticsearch is a distributed, RESTful search and analytics engine.
+    description: |-
+       Elasticsearch is a distributed, RESTful search and analytics engine.
+       
+       WARNING: Service Account have to permissions for run privileged containers.
     openshift.io/long-description: |
        Elasticsearch is a distributed, RESTful search and analytics engine capable of solving a growing number of use cases.
        As the heart of the Elastic Stack, it centrally stores your data so you can discover the expected and uncover the unexpected.
