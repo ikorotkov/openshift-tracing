@@ -80,12 +80,9 @@ objects:
           name: ${ELASTIC_DEPLOY_NAME}
           livenessProbe:
             httpGet:
-              path: /
+              path: /_cluster/health
               port: 9200
-          livenessProbe:
-            httpGet:
-              path: /
-              port: 9200
+              scheme: HTTP
           ports:
           - containerPort: 9200
             name: elasticsearch
