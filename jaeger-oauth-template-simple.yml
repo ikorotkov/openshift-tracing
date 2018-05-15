@@ -1,3 +1,16 @@
+#
+# Copyright 2017-2018 The Jaeger Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
+# in compliance with the License. You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software distributed under the License
+# is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
+# or implied. See the License for the specific language governing permissions and limitations under
+# the License.
+#
 
 parameters:
 - description: The location of the proxy image
@@ -9,11 +22,11 @@ parameters:
   name: JAEGER_SRV_NAME
   required: true
   value: jaeger
-- description: The Jaeger image version to use
-  displayName: Image version
-  name: IMAGE_VERSION
-  required: false
-  value: "1.2"
+- description: The Jaeger-query image
+  displayName: Query image
+  name: IMAGE_QUERY
+  required: true
+  value: "docker-registry-default.app.druapim.hq.ru.corp.leroymerlin.com/test-project/jaeger-query:latest"
 - description: The Jaeger-collector image
   displayName: Collector  image
   name: IMAGE_COLLECTOR
@@ -24,6 +37,27 @@ parameters:
   name: JAEGER_ZIPKIN_SERVICE_NAME
   required: true
   value: zipkin
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jaeger-configuration
+  labels:
+    app: jaeger
+    jaeger-infra: configuration
+data:
+  span-storage-type: elasticsearch
+  collector: |
+    collector:
+      zipkin:
+        http-port: 9411
+    es:
+      server-urls: http://elasticsearch:9200
+  query: |
+    es:
+      server-urls: http://elasticsearch:9200
+    query:
+      static-files: /go/jaeger-ui/
   
 apiVersion: v1
 kind: Template
@@ -121,7 +155,7 @@ objects:
             name: jaeger-tls
         
         - name: jaeger-query
-          image: jaegertracing/jaeger-query:${IMAGE_VERSION}
+          image: ${IMAGE_QUERY}
           command:
             - "/go/bin/query-linux"
             - "--config-file=/conf/query.yaml"
