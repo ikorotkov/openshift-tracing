@@ -14,6 +14,11 @@ parameters:
   name: IMAGE_VERSION
   required: false
   value: "1.2"
+- description: The Jaeger-collector image
+  displayName: Collector  image
+  name: IMAGE_COLLECTOR
+  required: true
+  value: "docker-registry-default.app.druapim.hq.ru.corp.leroymerlin.com/test-project/jaeger-collector:latest"
 - description: The name of the Jaeger Zipkin Service.
   displayName: Jaeger Zipkin Service Name
   name: JAEGER_ZIPKIN_SERVICE_NAME
@@ -167,7 +172,7 @@ objects:
           jaeger-infra: collector-pod
       spec:
         containers:
-        - image: jaegertracing/jaeger-collector:${IMAGE_VERSION}
+        - image: ${IMAGE_COLLECTOR}
           name: ${JAEGER_SRV_NAME}-collector
           command:
             - "/go/bin/collector-linux"
