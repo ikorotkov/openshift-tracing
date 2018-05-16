@@ -37,27 +37,6 @@ parameters:
   name: JAEGER_ZIPKIN_SERVICE_NAME
   required: true
   value: zipkin
-
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: jaeger-configuration
-  labels:
-    app: jaeger
-    jaeger-infra: configuration
-data:
-  span-storage-type: elasticsearch
-  collector: |
-    collector:
-      zipkin:
-        http-port: 9411
-    es:
-      server-urls: http://elasticsearch:9200
-  query: |
-    es:
-      server-urls: http://elasticsearch:9200
-    query:
-      static-files: /go/jaeger-ui/
   
 apiVersion: v1
 kind: Template
@@ -75,6 +54,27 @@ metadata:
     app: jaeger
     name: jaeger-infra
 objects:
+
+- apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: jaeger-configuration
+    labels:
+      app: jaeger
+      jaeger-infra: configuration
+  data:
+    span-storage-type: elasticsearch
+    collector: |
+      collector:
+        zipkin:
+          http-port: 9411
+      es:
+        server-urls: http://elasticsearch:9200
+    query: |
+      es:
+        server-urls: http://elasticsearch:9200
+      query:
+        static-files: /go/jaeger-ui/
 
 # Create a proxy service account and ensure it will use for the route jaeger-query
 - apiVersion: v1
