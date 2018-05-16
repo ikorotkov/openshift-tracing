@@ -1,0 +1,5 @@
+FROM jaegertracing/jaeger-query 
+
+USER 23748923
+
+CMD ["/go/bin/query-linux", "--query.static-files=/go/jaeger-ui/"]

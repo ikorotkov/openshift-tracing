@@ -1,0 +1,5 @@
+FROM openshift/oauth-proxy:v1.0.0 
+
+USER 23748923
+
+CMD ["/bin/oauth-proxy"]
