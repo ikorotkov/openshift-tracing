@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: List
+items:
+- apiVersion: v1
+  kind: ImageStream
+  metadata:
+    name: elasticsearch
+    labels:
+      app: elasticsearch
+  spec:
+    lookupPolicy:
+      local: false
+    tags:
+    - name: 6.2.2
+      from:
+        kind: DockerImage
+        name: registry.centos.org/rhsyseng/elasticsearch:latest
+
+- apiVersion: v1
+  kind: ImageStream
+  metadata:
+    name: jaeger-collector
+    labels:
+      app: jaeger
+  spec:
+    lookupPolicy:
+      local: false
+    tags:
+    - name: latest
+      from:
+        kind: DockerImage
+        name: ikorotkov/jaeger-collector:latest
+
+- apiVersion: v1
+  kind: ImageStream
+  metadata:
+    name: jaeger-query
+    labels:
+      app: jaeger
+  spec:
+    lookupPolicy:
+      local: false
+    tags:
+    - name: latest
+      from:
+        kind: DockerImage
+        name: ikorotkov/jaeger-query:latest
+
+- apiVersion: v1
+  kind: ImageStream
+  metadata:
+    name: oauth-proxy
+    labels:
+      app: oauth-proxy
+  spec:
+    lookupPolicy:
+      local: false
+    tags:
+    - name: latest
+      from:
+        kind: DockerImage
+        name: ikorotkov/oauth-proxy:v.1.0.0
